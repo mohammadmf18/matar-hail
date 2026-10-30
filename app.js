@@ -1,7 +1,72 @@
 const places={hail:[27.5219,41.6907],baqaa:[27.885,42.406],jubbah:[28.006,40.939],shinan:[27.165,42.445],ghazalah:[26.79,41.32]};
-const el=id=>document.getElementById(id);let busy=false,lastAlert='';
-const saved=localStorage.getItem('hail_place');if(places[saved])el('place').value=saved;
+const el=id=>document.getElementById(id);
+let lastAlert='',requestId=0,controller,layer='rain';
+const saved=localStorage.getItem('hail_place');
+if(places[saved])el('place').value=saved;
 el('notify').checked=localStorage.getItem('hail_notify')==='true';
-function escapeText(s){return String(s)}
-async function load(){if(busy)return;busy=true;el('refresh').disabled=true;el('status').textContent='جارٍ جلب بيانات الطقس…';try{const key=el('place').value;const [lat,lon]=places[key];const params=new URLSearchParams({latitude:lat,longitude:lon,current:'temperature_2m,precipitation',hourly:'precipitation_probability,precipitation',forecast_days:'2',timezone:'Asia/Riyadh'});const res=await fetch('https://api.open-meteo.com/v1/forecast?'+params,{cache:'no-store'});if(!res.ok)throw Error('تعذر الاتصال بمصدر الطقس');const d=await res.json();const current=d.current;const hours=d.hourly;const currentHour=current.time.slice(0,13)+':00';let start=hours.time.findIndex(t=>t>=currentHour);if(start<0)start=0;const rows=hours.time.slice(start,start+8).map((time,i)=>({time,prob:hours.precipitation_probability[start+i],rain:hours.precipitation[start+i]}));const max=Math.max(0,...rows.slice(0,4).map(r=>r.prob??0));el('temp').textContent=Math.round(current.temperature_2m)+'°';el('rain').textContent=current.precipitation+' ملم';el('prob').textContent=max+'٪';el('updated').textContent='آخر تحديث: '+new Date().toLocaleTimeString('ar-SA')+' • توقيت بيانات الطقس: '+current.time.replace('T',' ');el('hours').replaceChildren(...rows.map(r=>{const div=document.createElement('div');div.className='line';const a=document.createElement('span');a.textContent=r.time.slice(11);const b=document.createElement('span');b.textContent=`احتمال ${r.prob??'—'}٪ • ${r.rain??'—'} ملم`;div.append(a,b);return div}));const alert=current.precipitation>0?'رُصد هطول في بيانات الطقس لهذه المنطقة':max>=60?'احتمال مرتفع لهطول الأمطار خلال الساعات القادمة':'';el('banner').style.display=alert?'block':'none';el('banner').textContent=alert?'🌧️ '+alert:'';el('status').textContent='بيانات التوقعات متاحة';if(alert&&el('notify').checked&&lastAlert!==key+alert&&'Notification'in window&&Notification.permission==='granted'){const registration=await navigator.serviceWorker.ready;await registration.showNotification('مطر حائل',{body:alert,icon:'icon-192.png',tag:'matar-hail-weather'});lastAlert=key+alert}if(!alert)lastAlert='';}catch(e){el('status').textContent='تعذر تحديث البيانات. تحقق من الاتصال ثم حاول مرة أخرى.';}finally{busy=false;el('refresh').disabled=false}}
-el('refresh').addEventListener('click',load);el('place').addEventListener('change',()=>{localStorage.setItem('hail_place',el('place').value);lastAlert='';load()});el('notify').addEventListener('change',async()=>{if(el('notify').checked){if(!('Notification'in window)||!window.isSecureContext){alert('الإشعارات غير مدعومة في هذا السياق.');el('notify').checked=false;return}const result=await Notification.requestPermission();if(result!=='granted'){el('notify').checked=false;alert('لم يتم منح إذن الإشعارات.')}}localStorage.setItem('hail_notify',el('notify').checked)});if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});load();setInterval(()=>{if(!document.hidden)load()},300000);
+const placeName=()=>el('place').selectedOptions[0].textContent;
+const format=value=>typeof value==='number'&&Number.isFinite(value)?value:'—';
+function updateMap(){
+ const [lat,lon]=places[el('place').value];
+ const params=new URLSearchParams({type:'map',location:'coordinates',metricRain:'mm',metricTemp:'°C',metricWind:'km/h',zoom:'7',overlay:layer,product:'ecmwf',level:'surface',lat,lon,detailLat:lat,detailLon:lon,marker:'true'});
+ const url='https://embed.windy.com/embed.html?'+params;
+ el('map-title').textContent=(layer==='rain'?'خريطة الأمطار — ':'خريطة السحب — ')+placeName();
+ el('rain-map').title='خريطة '+(layer==='rain'?'الأمطار':'السحب')+' المتوقعة — '+placeName();
+ el('map-status').textContent='جارٍ تحميل الخريطة…';
+ el('rain-map').src=url;
+ el('map-expand').href=url;
+ el('layer-rain').setAttribute('aria-pressed',String(layer==='rain'));
+ el('layer-clouds').setAttribute('aria-pressed',String(layer==='clouds'));
+}
+el('rain-map').addEventListener('load',()=>{el('map-status').textContent='اختر الوقت من الشريط أسفل الخريطة. جميع بيانات الخريطة توقعات.'});
+for(const item of ['rain','clouds'])el('layer-'+item).addEventListener('click',()=>{if(layer===item)return;layer=item;updateMap()});
+function dailyCard(d,i){
+ const card=document.createElement('article');card.className='stat';
+ const name=document.createElement('div');name.className='day-name';name.textContent=new Date(d.time[i]+'T12:00:00').toLocaleDateString('ar-SA',{weekday:'long',month:'short',day:'numeric',calendar:'gregory'});
+ const rain=document.createElement('div');rain.className='day-rain';rain.textContent=format(d.precipitation_sum[i])+' ملم';
+ const detail=document.createElement('div');detail.className='day-detail';detail.textContent='احتمال المطر '+format(d.precipitation_probability_max[i])+'٪ • الحرارة '+format(d.temperature_2m_min[i])+'–'+format(d.temperature_2m_max[i])+'°';
+ card.append(name,rain,detail);return card;
+}
+async function load(){
+ const id=++requestId;
+ if(controller)controller.abort();controller=new AbortController();
+ const key=el('place').value,[lat,lon]=places[key];
+ el('refresh').disabled=true;el('status').textContent='جارٍ جلب بيانات الطقس…';
+ // Clear the previous region's values while fetching the new region.
+ for(const field of ['temp','rain','prob'])el(field).textContent='—';
+ el('updated').textContent='';el('hours').textContent='جارٍ التحميل…';el('days').textContent='جارٍ التحميل…';el('banner').style.display='none';
+ try{
+  const params=new URLSearchParams({latitude:lat,longitude:lon,current:'temperature_2m,precipitation',hourly:'precipitation_probability,precipitation',daily:'temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max',forecast_days:'3',timezone:'Asia/Riyadh'});
+  const res=await fetch('https://api.open-meteo.com/v1/forecast?'+params,{cache:'no-store',signal:controller.signal});
+  if(!res.ok)throw Error('Weather request failed');
+  const d=await res.json();if(id!==requestId)return;
+  const current=d.current,hours=d.hourly;
+  const currentHour=current.time.slice(0,13)+':00';
+  let start=hours.time.findIndex(t=>t>=currentHour);if(start<0)start=0;
+  const rows=hours.time.slice(start,start+24).map((time,i)=>({time,prob:hours.precipitation_probability[start+i],rain:hours.precipitation[start+i]}));
+  const max=Math.max(0,...rows.slice(0,4).map(r=>r.prob??0));
+  el('temp').textContent=format(Math.round(current.temperature_2m))+'°';el('rain').textContent=format(current.precipitation)+' ملم';el('prob').textContent=max+'٪';
+  el('updated').textContent='آخر تحديث: '+new Date().toLocaleTimeString('ar-SA')+' • توقيت بيانات الطقس: '+current.time.replace('T',' ')+' (السعودية)';
+  el('hours').replaceChildren(...rows.map(r=>{const div=document.createElement('div');div.className='line';const a=document.createElement('span');a.textContent=r.time.slice(8,10)+'/'+r.time.slice(5,7)+' • '+r.time.slice(11);const b=document.createElement('span');b.textContent=`احتمال ${format(r.prob)}٪ • ${format(r.rain)} ملم`;div.append(a,b);return div}));
+  el('days').replaceChildren(...d.daily.time.slice(0,3).map((_,i)=>dailyCard(d.daily,i)));
+  const message=current.precipitation>0?'رُصد هطول في بيانات الطقس لهذه المنطقة':max>=60?'احتمال مرتفع لهطول الأمطار خلال الساعات القادمة':'';
+  el('banner').style.display=message?'block':'none';el('banner').textContent=message?'🌧️ '+message:'';
+  el('status').textContent='بيانات التوقعات متاحة — '+placeName();
+  if(message&&el('notify').checked&&lastAlert!==key+message&&'Notification'in window&&Notification.permission==='granted'&&'serviceWorker'in navigator){
+   navigator.serviceWorker.ready.then(reg=>reg.showNotification('مطر حائل',{body:message,icon:'icon-192.png',tag:'matar-hail-weather'})).catch(()=>{});lastAlert=key+message;
+  }
+  if(!message)lastAlert='';
+ }catch(e){if(id===requestId&&e.name!=='AbortError'){el('status').textContent='تعذر تحديث البيانات. تحقق من الاتصال ثم حاول مرة أخرى.';el('hours').textContent='التوقعات غير متاحة حاليًا.';el('days').textContent='التوقعات غير متاحة حاليًا.';}}
+ finally{if(id===requestId)el('refresh').disabled=false;}
+}
+el('refresh').addEventListener('click',load);
+el('place').addEventListener('change',()=>{localStorage.setItem('hail_place',el('place').value);lastAlert='';updateMap();load()});
+el('notify').addEventListener('change',async()=>{
+ if(el('notify').checked){
+  if(!('Notification'in window)||!window.isSecureContext||!('serviceWorker'in navigator)){alert('الإشعارات غير مدعومة في هذا السياق.');el('notify').checked=false;return;}
+  const result=await Notification.requestPermission();if(result!=='granted'){el('notify').checked=false;alert('لم يتم منح إذن الإشعارات.');}
+ }
+ localStorage.setItem('hail_notify',el('notify').checked);
+});
+if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
+updateMap();load();setInterval(()=>{if(!document.hidden)load()},300000);
