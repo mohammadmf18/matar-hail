@@ -1,25 +1,30 @@
 const places={hail:[27.5219,41.6907],baqaa:[27.885,42.406],jubbah:[28.006,40.939],shinan:[27.165,42.445],ghazalah:[26.79,41.32]};
 const el=id=>document.getElementById(id);
-let lastAlert='',requestId=0,controller,layer='rain';
+let lastAlert='',requestId=0,controller,layer='radar';
 const saved=localStorage.getItem('hail_place');
 if(places[saved])el('place').value=saved;
 el('notify').checked=localStorage.getItem('hail_notify')==='true';
 const placeName=()=>el('place').selectedOptions[0].textContent;
 const format=value=>typeof value==='number'&&Number.isFinite(value)?value:'—';
 function updateMap(){
- const [lat,lon]=places[el('place').value];
- const params=new URLSearchParams({type:'map',location:'coordinates',metricRain:'mm',metricTemp:'°C',metricWind:'km/h',zoom:'7',overlay:layer,product:'ecmwf',level:'surface',lat,lon,detailLat:lat,detailLon:lon,marker:'true'});
- const url='https://embed.windy.com/embed.html?'+params;
- el('map-title').textContent=(layer==='rain'?'خريطة الأمطار — ':'خريطة السحب — ')+placeName();
- el('rain-map').title='خريطة '+(layer==='rain'?'الأمطار':'السحب')+' المتوقعة — '+placeName();
- el('map-status').textContent='جارٍ تحميل الخريطة…';
- el('rain-map').src=url;
- el('map-expand').href=url;
- el('layer-rain').setAttribute('aria-pressed',String(layer==='rain'));
- el('layer-clouds').setAttribute('aria-pressed',String(layer==='clouds'));
+ const [lat,lon]=places[el('place').value],isRadar=layer==='radar';
+ el('radar-view').hidden=!isRadar;el('rain-map').hidden=isRadar;el('map-expand').hidden=isRadar;
+ el('map-title').textContent=(isRadar?'رادار الأمطار — ':layer==='rain'?'توقعات الأمطار — ':'توقعات السحب — ')+placeName();
+ el('map-badge').textContent=isRadar?'رادار رصد فعلي • RainViewer':'توقعات جوية • نموذج ECMWF';
+ el('map-intro').textContent=isRadar?'آخر صور الرادار المتاحة. شغّل الحركة لمتابعة مسار الهطول خلال الساعتين الماضيتين.':'هذه خريطة توقعات وليست رصدًا فعليًا. استخدم شريط الوقت أسفلها لاستعراض التوقعات.';
+ for(const item of ['radar','rain','clouds'])el('layer-'+item).setAttribute('aria-pressed',String(layer===item));
+ if(isRadar){
+  el('map-status').textContent='تحقق من وقت إطار الرادار أسفل الخريطة؛ لا تعني الخريطة الخالية عدم وجود أمطار.';
+ }else{
+  const params=new URLSearchParams({type:'map',location:'coordinates',metricRain:'mm',metricTemp:'°C',metricWind:'km/h',zoom:'7',overlay:layer,product:'ecmwf',level:'surface',lat,lon,detailLat:lat,detailLon:lon,marker:'true'});
+  const url='https://embed.windy.com/embed.html?'+params;
+  el('rain-map').title='خريطة '+(layer==='rain'?'الأمطار':'السحب')+' المتوقعة — '+placeName();
+  el('map-status').textContent='جارٍ تحميل خريطة التوقعات…';el('rain-map').src=url;el('map-expand').href=url;
+ }
+ document.dispatchEvent(new CustomEvent('matar-map-change',{detail:{lat,lon,isRadar,name:placeName()}}));
 }
-el('rain-map').addEventListener('load',()=>{el('map-status').textContent='اختر الوقت من الشريط أسفل الخريطة. جميع بيانات الخريطة توقعات.'});
-for(const item of ['rain','clouds'])el('layer-'+item).addEventListener('click',()=>{if(layer===item)return;layer=item;updateMap()});
+el('rain-map').addEventListener('load',()=>{if(layer!=='radar')el('map-status').textContent='خريطة توقعات؛ اختر الوقت من الشريط أسفلها.'});
+for(const item of ['radar','rain','clouds'])el('layer-'+item).addEventListener('click',()=>{if(layer===item)return;layer=item;updateMap()});
 function dailyCard(d,i){
  const card=document.createElement('article');card.className='stat';
  const name=document.createElement('div');name.className='day-name';name.textContent=new Date(d.time[i]+'T12:00:00').toLocaleDateString('ar-SA',{weekday:'long',month:'short',day:'numeric',calendar:'gregory'});
