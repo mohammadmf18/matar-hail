@@ -67,7 +67,7 @@
   marker=L.circleMarker([lat,lon],{radius:7,color:'#fff',weight:3,fillColor:'#075985',fillOpacity:1}).addTo(map).bindTooltip(placeName());
   L.control.scale({imperial:false}).addTo(map);
   $('radar-map').insertAdjacentHTML('afterend','<p id="coverage-note" class="radar-note" style="padding:0 18px">اللون الداكن يبين المناطق خارج نطاق التغطية المنشور؛ القناع لا يبين أعطال الرادار اللحظية.</p>');
-  refresh();
+  if(!$('radar-view').hidden)refresh();
  }
  $('radar-refresh').addEventListener('click',refresh);
  $('radar-timeline').addEventListener('input',e=>{stop();showFrame(Number(e.target.value))});
@@ -81,6 +81,7 @@
  document.addEventListener('matar-map-change',e=>{
   if(!map)return;
   if(!e.detail.isRadar){stop();return;}
+  if(!frames.length)refresh();
   map.invalidateSize();map.setView([e.detail.lat,e.detail.lon],7);marker.setLatLng([e.detail.lat,e.detail.lon]).setTooltipContent(e.detail.name);
  });
  document.addEventListener('visibilitychange',()=>{if(document.hidden)stop()});
