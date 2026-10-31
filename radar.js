@@ -66,6 +66,7 @@
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(map);
   marker=L.circleMarker([lat,lon],{radius:7,color:'#fff',weight:3,fillColor:'#075985',fillOpacity:1}).addTo(map).bindTooltip(placeName());
   L.control.scale({imperial:false}).addTo(map);
+ if(typeof attachHeadingToMap==='function')attachHeadingToMap(map);
   $('radar-map').insertAdjacentHTML('afterend','<p id="coverage-note" class="radar-note" style="padding:0 18px">اللون الداكن يبين المناطق خارج نطاق التغطية المنشور؛ القناع لا يبين أعطال الرادار اللحظية.</p>');
   if(!$('radar-view').hidden)refresh();
  }

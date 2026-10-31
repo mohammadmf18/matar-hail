@@ -6,7 +6,7 @@ if(places[saved])el('place').value=saved;
 el('notify').checked=localStorage.getItem('hail_notify')==='true';
 const placeName=()=>el('place').selectedOptions[0].textContent;
 const format=value=>typeof value==='number'&&Number.isFinite(value)?value:'—';
-function updateMap(){
+function updateMap(locationUpdated=false){
  const [lat,lon]=places[el('place').value],isRadar=layer==='radar',isForecast=layer==='rain';
  el('radar-view').hidden=!isRadar;el('forecast-view').hidden=!isForecast;el('rain-map').hidden=isRadar||isForecast;el('map-expand').hidden=isRadar||isForecast;
  el('map-title').textContent=(isRadar?'رادار الأمطار — ':isForecast?'توقعات 12 ساعة — ':'توقعات السحب — ')+placeName();
@@ -20,7 +20,7 @@ function updateMap(){
   const url='https://embed.windy.com/embed.html?'+params;el('rain-map').title='توقعات السحب — '+placeName();
   el('map-status').textContent='جارٍ تحميل توقعات السحب…';el('rain-map').src=url;el('map-expand').href=url;
  }
- document.dispatchEvent(new CustomEvent('matar-map-change',{detail:{lat,lon,isRadar,isForecast,name:placeName(),key:el('place').value}}));
+ document.dispatchEvent(new CustomEvent('matar-map-change',{detail:{lat,lon,isRadar,isForecast,name:placeName(),key:el('place').value,locationUpdated}}));
 }
 el('rain-map').addEventListener('load',()=>{if(layer==='clouds')el('map-status').textContent='خريطة توقعات سحب؛ اختر الوقت من الشريط أسفلها.'});
 for(const item of ['radar','rain','clouds'])el('layer-'+item).addEventListener('click',()=>{if(layer===item)return;layer=item;updateMap()});
@@ -64,7 +64,7 @@ async function load(){
  finally{if(id===requestId)el('refresh').disabled=false;}
 }
 el('refresh').addEventListener('click',load);
-el('place').addEventListener('change',()=>{localStorage.setItem('hail_place',el('place').value);lastAlert='';updateMap();load()});
+el('place').addEventListener('change',()=>{if(el('place').value==='current')localStorage.removeItem('hail_place');else localStorage.setItem('hail_place',el('place').value);lastAlert='';updateMap(el('place').value==='current');load()});
 el('notify').addEventListener('change',async()=>{
  if(el('notify').checked){
   if(!('Notification'in window)||!window.isSecureContext||!('serviceWorker'in navigator)){alert('الإشعارات غير مدعومة في هذا السياق.');el('notify').checked=false;return;}
